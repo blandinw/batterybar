@@ -1,0 +1,11 @@
+[package]
+name = "batterybar"
+version = "0.1.0"
+authors = ["alcee"]
+
+[dependencies]
+cocoa = { git = "https://github.com/servo/core-foundation-rs" }
+core-foundation-sys = { git = "https://github.com/servo/core-foundation-rs" }
+env_logger = "0.5"
+log = "0.4"
+objc = "0.2"
