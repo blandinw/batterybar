@@ -1,4 +1,7 @@
+/.idea
+/.vscode
 /target
 *.swp
 *.swo
+*.iml
 .DS_Store

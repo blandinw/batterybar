@@ -1,12 +1,14 @@
 extern crate cocoa;
 extern crate core_foundation_sys;
 extern crate env_logger;
-#[macro_use] extern crate log;
-#[macro_use] extern crate objc;
+#[macro_use]
+extern crate log;
+#[macro_use]
+extern crate objc;
 
-use cocoa::appkit::{NSApp,NSApplication,NSApplicationActivationPolicyRegular,NSStatusBar,NSVariableStatusItemLength,NSButton};
-use cocoa::base::{id,nil};
-use cocoa::foundation::{NSAutoreleasePool,NSString};
+use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyRegular, NSStatusBar, NSVariableStatusItemLength, NSButton};
+use cocoa::base::{id, nil};
+use cocoa::foundation::{NSAutoreleasePool, NSString};
 use core_foundation_sys::date::CFTimeInterval;
 use objc::declare::ClassDecl;
 use objc::runtime::{Object, Sel};
@@ -20,11 +22,16 @@ extern {
      */
     pub fn IOPSGetTimeRemainingEstimate() -> CFTimeInterval;
 }
-#[allow(non_upper_case_globals)] pub const kIOPSTimeRemainingUnknown: CFTimeInterval = -1.0;
-#[allow(non_upper_case_globals)] pub const kIOPSTimeRemainingUnlimited: CFTimeInterval = -2.0;
 
-unsafe fn set_delegate(x: id, delegate_object: id) {
-    msg_send![x, setDelegate:delegate_object];
+#[allow(non_upper_case_globals)]
+pub const kIOPSTimeRemainingUnknown: CFTimeInterval = -1.0;
+#[allow(non_upper_case_globals)]
+pub const kIOPSTimeRemainingUnlimited: CFTimeInterval = -2.0;
+
+fn set_delegate(x: id, delegate_object: id) {
+    unsafe {
+        msg_send![x, setDelegate:delegate_object];
+    }
 }
 
 fn human_time(seconds: i64) -> String {
@@ -69,9 +76,9 @@ fn main() {
             loop {
                 let remaining_secs = unsafe { IOPSGetTimeRemainingEstimate() };
                 let label = if remaining_secs == kIOPSTimeRemainingUnknown {
-                    String::from("unknown")
+                    String::from("unk")
                 } else if remaining_secs == kIOPSTimeRemainingUnlimited {
-                    String::from("infinite")
+                    String::from("inf")
                 } else {
                     human_time(remaining_secs as i64)
                 };
@@ -87,7 +94,7 @@ fn main() {
         }
 
         decl.add_method(sel!(applicationDidFinishLaunching:),
-            application_did_finish_launching as extern fn(&Object, Sel, id));
+                        application_did_finish_launching as extern fn(&Object, Sel, id));
 
         let delegate_class = decl.register();
         let delegate_object = msg_send![delegate_class, new];
