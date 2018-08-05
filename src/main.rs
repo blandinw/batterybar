@@ -90,21 +90,7 @@ fn nsdict_get<T: From<FromId>>(dict: id, key: &str) -> T {
 }
 
 fn human_time(minutes: i64) -> String {
-    let mut x = minutes;
-
-    let mins = x % 60;
-    if x < 60 {
-        return format!("{}m", mins);
-    }
-
-    x /= 60;
-    let hours = x % 24;
-    if x < 24 {
-        return format!("{}h{}m", hours, mins);
-    }
-
-    x /= 24;
-    format!("{}d{}h{}m", x, hours, mins)
+    return format!("{}:{:02}", minutes / 60, minutes % 60);
 }
 
 fn generate_title() -> String {
@@ -119,30 +105,30 @@ fn generate_title() -> String {
     let current_pct = 100. * current_cap as f64 / max_cap as f64;
 
     #[allow(non_upper_case_globals)]
-        match state.as_ref() {
+    match state.as_ref() {
         kIOPSBatteryPowerValue => {
             let mins = nsdict_get::<i32>(nsdict, kIOPSTimeToEmptyKey);
-            if mins == kIOPSTimeRemainingUnknown as i32 {
-                format!("{}%", current_pct)
-            } else {
-                format!(
-                    "{} ({}%)",
-                    human_time(mins as i64),
-                    current_pct
-                )
-            }
+            format!(
+                "\u{2193} {}({}%)",
+                if mins == 0 || mins == kIOPSTimeRemainingUnknown as i32 {
+                    String::from("")
+                } else {
+                    format!("{} ", human_time(mins as i64))
+                },
+                current_pct
+            )
         }
         kIOPSACPowerValue => {
             let mins = nsdict_get::<i32>(nsdict, kIOPSTimeToFullChargeKey);
-            if mins == kIOPSTimeRemainingUnknown as i32 {
-                format!("{}%", current_pct)
-            } else {
-                format!(
-                    "{} ({}%%)",
-                    human_time(mins as i64),
-                    current_pct
-                )
-            }
+            format!(
+                "\u{2191} {}({}%)",
+                if mins == 0 || mins == kIOPSTimeRemainingUnknown as i32 {
+                    String::from("")
+                } else {
+                    format!("{} ", human_time(mins as i64))
+                },
+                current_pct
+            )
         }
         &_ => {
             String::from("\u{1F914}")
