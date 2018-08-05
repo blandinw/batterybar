@@ -6,7 +6,7 @@
     <string>com.github.blandinw.batterybar</string>
     <key>ProgramArguments</key>
     <array>
-    <string>/usr/local/bin/batterybar</string>
+    <string>BIN</string>
     </array>
     <key>KeepAlive</key>
     <true/>

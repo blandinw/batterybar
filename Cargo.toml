@@ -5,6 +5,7 @@ authors = ["alcee"]
 
 [dependencies]
 cocoa = { git = "https://github.com/servo/core-foundation-rs" }
+core-foundation = { git = "https://github.com/servo/core-foundation-rs" }
 core-foundation-sys = { git = "https://github.com/servo/core-foundation-rs" }
 env_logger = "0.5"
 log = "0.4"

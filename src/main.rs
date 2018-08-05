@@ -1,4 +1,5 @@
 extern crate cocoa;
+extern crate core_foundation;
 extern crate core_foundation_sys;
 extern crate env_logger;
 #[macro_use]
@@ -6,17 +7,20 @@ extern crate log;
 #[macro_use]
 extern crate objc;
 
-#[allow(unused_imports)]
-use cocoa::appkit::NSApplicationActivationPolicyRegular;
 use cocoa::appkit::{
     NSApp, NSApplication, NSApplicationActivationPolicyAccessory, NSButton, NSStatusBar,
     NSVariableStatusItemLength,
 };
 use cocoa::base::{id, nil};
-use cocoa::foundation::{NSArray, NSAutoreleasePool, NSString};
+use cocoa::foundation::{NSAutoreleasePool, NSFastEnumeration, NSString};
+use core_foundation_sys::array::CFArrayRef;
+use core_foundation_sys::base::CFTypeRef;
 use core_foundation_sys::date::CFTimeInterval;
+use core_foundation_sys::dictionary::CFDictionaryRef;
 use objc::declare::ClassDecl;
-use objc::runtime::{Object, Sel};
+use objc::runtime::{Object, Sel, YES};
+use std::ffi::CStr;
+use std::os::raw::c_char;
 use std::thread;
 use std::time;
 
@@ -25,24 +29,69 @@ extern "C" {
     /*
      * IOPowerSources.h
      */
+    // https://developer.apple.com/documentation/iokit/iopskeys.h/defines?language=objc
+    pub fn IOPSCopyPowerSourcesInfo() -> CFTypeRef;
+    pub fn IOPSCopyPowerSourcesList(blob: CFTypeRef) -> CFArrayRef;
+    pub fn IOPSGetPowerSourceDescription(blob: CFTypeRef, ps: CFTypeRef) -> CFDictionaryRef;
     pub fn IOPSGetTimeRemainingEstimate() -> CFTimeInterval;
 }
 
-#[link(name = "AppKit", kind = "framework")]
-extern "C" {
-    #[allow(non_upper_case_globals)]
-    static NSTouchBarItemIdentifierCharacterPicker: id;
-}
-
+#[allow(non_upper_case_globals)]
+pub const kIOPSACPowerValue: &str = "AC Power";
+#[allow(non_upper_case_globals)]
+pub const kIOPSBatteryPowerValue: &str = "Battery Power";
+#[allow(non_upper_case_globals)]
+pub const kIOPSIsChargingKey: &str = "Is Charging";
+#[allow(non_upper_case_globals)]
+pub const kIOPSMaxCapacityKey: &str = "Max Capacity";
+#[allow(non_upper_case_globals)]
+pub const kIOPSCurrentCapacityKey: &str = "Current Capacity";
+#[allow(non_upper_case_globals)]
+pub const kIOPSPowerSourceStateKey: &str = "Power Source State";
+#[allow(non_upper_case_globals)]
+pub const kIOPSTimeToEmptyKey: &str = "Time to Empty";
+#[allow(non_upper_case_globals)]
+pub const kIOPSTimeToFullChargeKey: &str = "Time to Full Charge";
 #[allow(non_upper_case_globals)]
 pub const kIOPSTimeRemainingUnknown: CFTimeInterval = -1.0;
 #[allow(non_upper_case_globals)]
 pub const kIOPSTimeRemainingUnlimited: CFTimeInterval = -2.0;
 
-fn human_time(seconds: i64) -> String {
-    let mut x = seconds;
+static mut STATUS_ITEM: Option<id> = None;
 
-    x /= 60;
+pub struct FromId {
+    id: id
+}
+
+impl From<FromId> for String {
+    fn from(x: FromId) -> Self {
+        let chars: *const c_char = unsafe { msg_send![x.id, UTF8String] };
+        let cstr = unsafe { CStr::from_ptr(chars) };
+        cstr.to_owned().into_string().unwrap()
+    }
+}
+
+impl From<FromId> for i32 {
+    fn from(x: FromId) -> Self {
+        unsafe { msg_send![x.id, intValue] }
+    }
+}
+
+impl From<FromId> for bool {
+    fn from(x: FromId) -> Self {
+        unsafe { YES == msg_send![x.id, boolValue] }
+    }
+}
+
+fn nsdict_get<T: From<FromId>>(dict: id, key: &str) -> T {
+    let k = unsafe { NSString::alloc(nil).init_str(key) };
+    let v: FromId = unsafe { msg_send![dict, objectForKey:k] };
+    From::from(v)
+}
+
+fn human_time(minutes: i64) -> String {
+    let mut x = minutes;
+
     let mins = x % 60;
     if x < 60 {
         return format!("{}m", mins);
@@ -58,8 +107,48 @@ fn human_time(seconds: i64) -> String {
     format!("{}d{}h{}m", x, hours, mins)
 }
 
-static mut STATUS_ITEM: Option<id> = None;
-static mut TOUCHBAR_ITEM_ID: id = nil;
+fn generate_title() -> String {
+    let blob = unsafe { IOPSCopyPowerSourcesInfo() };
+    let nsary: id = unsafe { IOPSCopyPowerSourcesList(blob) } as id;
+    // TODO(willy) smarter power source selection using kIOPSInternalBatteryType
+    let nsdict: id = unsafe { nsary.iter() }.next().unwrap();
+
+    let state = nsdict_get::<String>(nsdict, kIOPSPowerSourceStateKey);
+    let current_cap = nsdict_get::<i32>(nsdict, kIOPSCurrentCapacityKey);
+    let max_cap = nsdict_get::<i32>(nsdict, kIOPSMaxCapacityKey);
+    let current_pct = 100. * current_cap as f64 / max_cap as f64;
+
+    #[allow(non_upper_case_globals)]
+        match state.as_ref() {
+        kIOPSBatteryPowerValue => {
+            let mins = nsdict_get::<i32>(nsdict, kIOPSTimeToEmptyKey);
+            if mins == kIOPSTimeRemainingUnknown as i32 {
+                format!("{}%", current_pct)
+            } else {
+                format!(
+                    "{} ({}%)",
+                    human_time(mins as i64),
+                    current_pct
+                )
+            }
+        }
+        kIOPSACPowerValue => {
+            let mins = nsdict_get::<i32>(nsdict, kIOPSTimeToFullChargeKey);
+            if mins == kIOPSTimeRemainingUnknown as i32 {
+                format!("{}%", current_pct)
+            } else {
+                format!(
+                    "{} ({}%%)",
+                    human_time(mins as i64),
+                    current_pct
+                )
+            }
+        }
+        &_ => {
+            String::from("\u{1F914}")
+        }
+    }
+}
 
 fn main() {
     env_logger::init();
@@ -71,21 +160,13 @@ fn main() {
         let app = NSApp();
 
         // init static objects
-        TOUCHBAR_ITEM_ID =
-            NSString::alloc(nil).init_str("com.github.blandinw.batterybar.touchbaritem1");
         let status_bar = NSStatusBar::systemStatusBar(nil);
         STATUS_ITEM = Some(status_bar.statusItemWithLength_(NSVariableStatusItemLength));
 
         // customize NSApplication
-        // app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
         app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
 
-        // let img_path: id = NSString::alloc(nil).init_str("/Applications/Sketch.app/Contents/Resources/app.icns");
-        // let mut img: id = msg_send![class!(NSImage), alloc];
-        // img = msg_send![img, initByReferencingFile: img_path];
-        // msg_send![app, setApplicationIconImage: img];
-
-        let superclass = class!(NSResponder);
+        let superclass = class!(NSObject);
         let mut decl = ClassDecl::new("MyAppDelegate", superclass).unwrap();
 
         // NSApplicationDelegate
@@ -93,58 +174,18 @@ fn main() {
             info!("application did finish launching");
 
             thread::spawn(|| loop {
-                let remaining_secs = unsafe { IOPSGetTimeRemainingEstimate() };
-                let label = if remaining_secs == kIOPSTimeRemainingUnknown {
-                    String::from("\u{1F914}")
-                } else if remaining_secs == kIOPSTimeRemainingUnlimited {
-                    String::from("\u{1F60E}")
-                } else {
-                    human_time(remaining_secs as i64)
-                };
-                debug!("{} -> {}", remaining_secs, label);
-
+                let title = generate_title();
                 unsafe {
-                    let title = NSString::alloc(nil).init_str(&label).autorelease();
-                    STATUS_ITEM.unwrap().setTitle_(title);
+                    STATUS_ITEM.unwrap().setTitle_(
+                        NSString::alloc(nil).init_str(&title).autorelease()
+                    );
                 }
-
                 thread::sleep(time::Duration::from_millis(5000));
             });
         }
         decl.add_method(
             sel!(applicationDidFinishLaunching:),
             application_did_finish_launching as extern "C" fn(&Object, Sel, id),
-        );
-
-        // NSTouchBarProvider
-        extern "C" fn make_touchbar(_this: &mut Object, _: Sel) -> id {
-            info!("make touchbar");
-            unsafe {
-                let touchbar: id = msg_send![class!(NSTouchBar), new];
-                let title: id = NSString::alloc(nil).init_str("Hello Lin~ \u{1F430}");
-                let button: id =
-                    msg_send![class!(NSButton), buttonWithTitle:title target:nil action:nil];
-                let mut item: id = msg_send![class!(NSCustomTouchBarItem), alloc];
-                item = msg_send![item, initWithIdentifier: TOUCHBAR_ITEM_ID];
-                msg_send![item, setView: button];
-
-                let items_array: id = NSArray::arrayWithObject(nil, item);
-                let items_set: id = msg_send![class!(NSSet), setWithArray: items_array];
-
-                let item_identifiers: id = NSArray::arrayWithObjects(
-                    nil,
-                    &[NSTouchBarItemIdentifierCharacterPicker, TOUCHBAR_ITEM_ID],
-                );
-
-                msg_send![touchbar, setTemplateItems: items_set];
-                msg_send![touchbar, setDefaultItemIdentifiers: item_identifiers];
-
-                return touchbar;
-            };
-        }
-        decl.add_method(
-            sel!(makeTouchBar),
-            make_touchbar as extern "C" fn(&mut Object, Sel) -> id,
         );
 
         let delegate_class = decl.register();
