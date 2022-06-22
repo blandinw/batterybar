@@ -1,3 +1,5 @@
+Not maintained anymore, feel free to fork etc.
+
 # batterybar
 
 ![screenshot of batterybar](batterybar.png)
